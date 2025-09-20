@@ -17,7 +17,19 @@ export const useBLE = ({ services = [] } = {}) => {
 
   // Check if Bluetooth is available
   const isBluetoothAvailable = useCallback(() => {
-    return navigator.bluetooth !== undefined;
+    // More comprehensive check
+    if (!navigator.bluetooth) {
+      console.log("Web Bluetooth API not supported");
+      return false;
+    }
+    
+    // Check if we're on HTTPS (required for Web Bluetooth)
+    if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+      console.log("Web Bluetooth requires HTTPS or localhost");
+      return false;
+    }
+    
+    return true;
   }, []);
 
   // Scan for devices
@@ -25,21 +37,30 @@ export const useBLE = ({ services = [] } = {}) => {
     setError(null);
 
     if (!isBluetoothAvailable()) {
-      setError("Bluetooth is not available in this browser");
-      return;
+      const errorMsg = "Bluetooth is not available in this browser";
+      console.error(errorMsg);
+      setError(errorMsg);
+      return null;
     }
 
     try {
       setIsScanning(true);
-
-      // console.log(services);
+      
+      console.log("Starting BLE scan with services:", services);
 
       const requestOptions =
         services.length > 0
-          ? { filters: [{ services }], optionalServices: services }
+          ? { 
+              filters: [{ services }], 
+              optionalServices: services 
+            }
           : { acceptAllDevices: true };
 
+      console.log("Request options:", requestOptions);
+
       const device = await navigator.bluetooth.requestDevice(requestOptions);
+      
+      console.log("Device found:", device);
 
       // Add to devices list if not already there
       setDevices((prevDevices) => {
@@ -48,11 +69,24 @@ export const useBLE = ({ services = [] } = {}) => {
       });
 
       setIsScanning(false);
-      // console.log(services);
-
       return device;
     } catch (err) {
-      setError(err.message);
+      console.error("BLE scan error:", err);
+      
+      let errorMessage = err.message;
+      
+      // Provide more helpful error messages
+      if (err.name === "NotFoundError") {
+        errorMessage = "No devices found. Make sure your ESP32 is powered on and broadcasting.";
+      } else if (err.name === "SecurityError") {
+        errorMessage = "Bluetooth access denied. Please enable Web Bluetooth in your browser.";
+      } else if (err.name === "NotSupportedError") {
+        errorMessage = "Web Bluetooth is not supported in this browser. Try Chrome, Edge, or Opera.";
+      } else if (err.message.includes("User cancelled")) {
+        errorMessage = "Device selection was cancelled.";
+      }
+      
+      setError(errorMessage);
       setIsScanning(false);
       return null;
     }
